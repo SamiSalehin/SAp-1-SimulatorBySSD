@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAP-1 Simulator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --bg4: #30363d;
+    --border: #30363d; --border2: #484f58; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+    --green: #3fb950; --green-bg: #0d2818; --green-dim: #1a3a24;
+    --blue: #58a6ff; --blue-bg: #0d1f38;
+    --amber: #d29922; --amber-bg: #2b1f07;
+    --red: #f85149; --red-bg: #2d0f0e;
+    --purple: #bc8cff; --purple-bg: #1e1030;
+    --teal: #39d0c3; --teal-bg: #0a2525;
+    --signal: #f0a500; --signal-glow: rgba(240,165,0,0.5);
+    --active-border: #f0a500;
+    --font: 'Courier New', Courier, monospace;
+    --bus-color: #f0a500;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; }
+
+  #topbar { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; flex-wrap: wrap; }
+  #topbar h1 { font-size: 14px; font-weight: bold; color: var(--green); letter-spacing: 2px; text-transform: uppercase; flex-shrink: 0; }
+  #topbar .sep { width: 1px; height: 20px; background: var(--border2); }
+  #clock-display { font-size: 11px; color: var(--text2); background: var(--bg3); padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); }
+  #step-display { font-size: 12px; color: var(--amber); font-weight: bold; min-width: 100px; }
+  #phase-badge { font-size: 11px; padding: 3px 12px; border-radius: 10px; background: var(--teal-bg); border: 1px solid var(--teal); color: var(--teal); letter-spacing: 1px; font-weight: bold; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  #manual-btn { background: transparent; border: 1px solid var(--purple); color: var(--purple); padding: 5px 12px; border-radius: 4px; cursor: pointer; font-family: var(--font); font-size: 12px; letter-spacing: 1px; transition: background 0.2s; }
+  #manual-btn:hover { background: var(--purple-bg); }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #sim-area { flex: 1; position: relative; overflow: auto; padding: 20px; min-width: 0; }
+  #sim-canvas { position: relative; width: 1060px; min-height: 780px; margin: 0 auto; }
+
+  /* W-BUS — wider */
+  #wbus-line { position: absolute; left: 510px; top: 10px; width: 18px; height: 720px; background: linear-gradient(180deg, #1a1200 0%, #2a1e00 100%); border: 2px solid #4a3500; border-radius: 4px; z-index: 1; box-shadow: 0 0 8px rgba(240,165,0,0.2); }
+  #wbus-active { position: absolute; left: 510px; top: 10px; width: 18px; height: 720px; background: transparent; border-radius: 4px; z-index: 2; pointer-events: none; transition: all 0.3s; }
+  #wbus-active.lit { background: rgba(240,165,0,0.15); box-shadow: 0 0 16px rgba(240,165,0,0.5); }
+  #wbus-label { position: absolute; left: 500px; top: 370px; color: #f0a500; font-size: 10px; writing-mode: vertical-rl; letter-spacing: 2px; text-transform: uppercase; z-index: 3; }
+  #wbus-data { position: absolute; left: 534px; top: 50%; transform: translateY(-50%); color: var(--signal); font-size: 20px; font-family: var(--font); writing-mode: vertical-rl; letter-spacing: 1px; z-index: 6; opacity: 0; transition: opacity 0.3s; pointer-events: none; font-weight: bold; text-shadow: 0 0 6px var(--signal); }
+  #wbus-data.visible { opacity: 1; }
+
+  /* COMPONENTS */
+  .component { position: absolute; background: var(--bg2); border: 1.5px solid var(--border2); border-radius: 6px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s; z-index: 5; user-select: none; }
+  .component:hover { border-color: var(--blue); box-shadow: 0 0 10px rgba(88,166,255,0.2); }
+  .component.active { border-color: var(--active-border); box-shadow: 0 0 14px var(--signal-glow); }
+  .comp-header { background: var(--bg3); border-bottom: 1px solid var(--border); padding: 4px 8px; font-size: 10px; color: white; text-transform: uppercase; letter-spacing: 1px; border-radius: 4px 4px 0 0; }
+  .comp-body { padding: 5px 8px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .comp-name { font-size: 10px; font-weight: bold; color: var(--text); text-align: center; line-height: 1.3; }
+  .comp-value { font-size: 13px; font-weight: bold; color: var(--green); font-family: var(--font); letter-spacing: 1px; background: var(--bg); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); min-width: 76px; text-align: center; }
+  .comp-hex { font-size: 10px; color: var(--text3); }
+
+  /* Pin strip */
+  .pin-strip { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; padding: 3px 4px; border-top: 1px solid var(--border); background: #0a0e13; border-radius: 0 0 4px 4px; }
+  .pin { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border); color: var(--text3); white-space: nowrap; transition: all 0.2s; font-family: var(--font); }
+  .pin.pin-0 { color: #444; border-color: #333; background: #0d0d0d; }
+  .pin.pin-1 { color: var(--green); border-color: var(--green); background: var(--green-bg); box-shadow: 0 0 4px rgba(63,185,80,0.3); }
+  .pin.pin-active { color: var(--signal); border-color: var(--signal); background: var(--amber-bg); box-shadow: 0 0 6px rgba(240,165,0,0.5); animation: pinPulse 0.6s ease-in-out infinite; }
+  @keyframes pinPulse { 0%,100%{box-shadow:0 0 4px rgba(240,165,0,0.3)} 50%{box-shadow:0 0 10px rgba(240,165,0,0.8)} }
+
+
+  .system-container {
+  width: 90%;
+  margin: 0 auto; /* Centers the system in the browser */
+  max-width: 1800px; /* Optional: prevents it from getting too huge on 4k monitors */
+}
+
+  /* Component sizes & positions — wider canvas */
+  #pc     { left: 50px;  top: 50px;  width: 160px; }
+  #acc    { left: 700px; top: 50px;  width: 160px; }
+  #mar    { left: 50px;  top: 230px; width: 160px; }
+  #alu    { left: 700px; top: 230px; width: 160px; }
+  #ram    { left: 50px;  top: 410px; width: 160px; }
+  #breg   { left: 700px; top: 410px; width: 160px; }
+  #ir     { left: 50px;  top: 560px; width: 160px; }
+  #outreg { left: 700px; top: 545px; width: 160px; }
+  #ctrl   { left: 50px;  top: 680px; width: 170px; }
+  #disp   { left: 700px; top: 668px; width: 160px; }
+
+  #ram .comp-header { background: #0a1f2e; color: var(--blue); }
+  #ram { border-color: var(--blue); }
+  #ctrl .comp-header { background: #1f0a2e; color: var(--purple); }
+  #ctrl { border-color: var(--purple); }
+  #ram-btn { font-size: 10px; background: var(--blue-bg); border: 1px solid var(--blue); color: var(--blue); padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: var(--font); margin-top: 2px; transition: background 0.2s; }
+  #ram-btn:hover { background: #1a3a5e; }
+
+  .ctrl-signals { display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; justify-content: center; }
+  .sig-pill { font-size: 9px; padding: 1px 4px; border-radius: 8px; background: var(--bg3); border: 1px solid var(--border); color: var(--text3); transition: all 0.2s; white-space: nowrap; }
+  .sig-pill.active { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); box-shadow: 0 0 4px rgba(210,153,34,0.4); }
+
+  .bin-display { display: flex; gap: 2px; margin: 3px 0; }
+  .bin-bit { width: 13px; height: 18px; border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; border: 1px solid var(--border); background: var(--bg3); color: var(--text3); transition: all 0.2s; }
+  .bin-bit.on { background: var(--green-bg); border-color: var(--green); color: var(--green); box-shadow: 0 0 4px rgba(63,185,80,0.4); }
+
+  /* Arrow data labels in SVG — shown above/beside arrows */
+  .arr-label { font-size: 9px; font-family: 'Courier New', monospace; font-weight: bold; opacity: 0; transition: opacity 0.3s; }
+  .arr-label.visible { opacity: 1; }
+
+  /* SVG arrows */
+  #arrows-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  .sig-arrow { stroke: var(--signal); stroke-width: 3; fill: none; stroke-dasharray: 8 4; stroke-dashoffset: 0; opacity: 0; transition: opacity 0.3s; }
+  .sig-arrow.visible { opacity: 1; }
+  .sig-arrow.animated { animation: flowAnim 0.5s linear infinite; }
+  .sig-arrow.pulse { animation: pulseAnim 0.8s ease-in-out infinite; }
+  .sig-arrow-teal { stroke: #39d0c3; }
+  .sig-arrow-green { stroke: #3fb950; }
+  .sig-arrow-purple { stroke: #bc8cff; }
+  .sig-arrow-blue { stroke: #58a6ff; }
+  @keyframes flowAnim { to { stroke-dashoffset: -24; } }
+  @keyframes pulseAnim { 0%,100%{opacity:0.3;stroke-width:2.5} 50%{opacity:1;stroke-width:4} }
+
+  /* CON panel */
+  #con-panel { width: 200px; background: var(--bg2); border-left: 1px solid var(--border); padding: 10px; overflow-y: auto; flex-shrink: 0; }
+  #con-panel h3 { font-size: 11px; color: var(--purple); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+  .con-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid var(--bg3); }
+  .con-name { font-size: 20px; color: var(--text2); min-width: 55px; }
+  .con-val { font-size: 20px; font-weight: bold; padding: 1px 6px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border); color: var(--text3); min-width: 28px; text-align: center; transition: all 0.2s; }
+  .con-val.high { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  .con-val.low { background: var(--bg3); color: var(--text3); }
+  .con-step-name { font-size: 12px; color: var(--amber); margin: 6px 0 3px; font-weight: bold; }
+
+  /* Controls */
+  #controls { background: var(--bg2); border-top: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .ctrl-btn { font-family: var(--font); font-size: 12px; padding: 7px 16px; border-radius: 5px; cursor: pointer; border: 1.5px solid; font-weight: bold; letter-spacing: 1px; transition: all 0.15s; text-transform: uppercase; }
+  .ctrl-btn:active { transform: scale(0.97); }
+  #btn-run { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  #btn-run:hover { background: var(--green-dim); }
+  #btn-pause { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); display: none; }
+  #btn-pause:hover { background: #3d2d0a; }
+  #btn-reset { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  #btn-reset:hover { background: #3d1413; }
+  #btn-prev, #btn-next { background: var(--bg3); border-color: var(--border2); color: var(--text2); }
+  #btn-prev:hover, #btn-next:hover { border-color: var(--blue); color: var(--blue); }
+  #btn-prev:disabled, #btn-next:disabled { opacity: 0.3; cursor: not-allowed; }
+  .speed-control { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .speed-control label { font-size: 11px; color: var(--text2); }
+  .speed-control input[type=range] { width: 80px; accent-color: var(--blue); }
+  #status-bar { font-size: 20px; color: var(--teal); padding: 2px 10px; background: var(--teal-bg); border-radius: 4px; border: 1px solid var(--teal); min-width: 200px; white-space: nowrap; }
+
+  /* MODALS */
+  #ram-modal, #info-modal, #manual-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200; align-items: center; justify-content: center; }
+  #ram-modal.open, #info-modal.open { display: flex; }
+  #manual-modal.open { display: flex; align-items: flex-start; padding: 20px; overflow-y: auto; }
+  #ram-modal-inner { background: var(--bg2); border: 1.5px solid var(--blue); border-radius: 8px; width: 560px; max-height: 85vh; display: flex; flex-direction: column; }
+  #ram-modal-header { background: var(--blue-bg); border-bottom: 1px solid var(--blue); padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-radius: 6px 6px 0 0; }
+  #ram-modal-header h2 { font-size: 13px; color: var(--blue); text-transform: uppercase; letter-spacing: 2px; flex: 1; }
+  #ram-close, #info-close, #manual-close { background: none; border: 1px solid var(--border2); color: var(--text2); width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; font-family: var(--font); }
+  #ram-close:hover, #info-close:hover, #manual-close:hover { border-color: var(--red); color: var(--red); }
+  #ram-modal-body { padding: 12px 16px; overflow-y: auto; flex: 1; }
+  .ram-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .ram-toolbar select, .ram-toolbar button { font-family: var(--font); font-size: 11px; padding: 4px 8px; background: var(--bg3); border: 1px solid var(--border2); color: var(--text); border-radius: 4px; cursor: pointer; }
+  .ram-toolbar button:hover { border-color: var(--blue); color: var(--blue); }
+  .ram-table { width: 100%; border-collapse: collapse; }
+  .ram-table th { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  .ram-table td { padding: 3px 6px; border-bottom: 1px solid var(--bg3); vertical-align: middle; }
+  .ram-addr { font-size: 11px; color: var(--text3); width: 40px; font-weight: bold; }
+  .ram-mnem { width: 90px; }
+  .ram-mnem select { font-family: var(--font); font-size: 11px; background: var(--bg3); border: 1px solid var(--border); color: var(--blue); padding: 2px 4px; border-radius: 3px; width: 85px; cursor: pointer; }
+  .ram-operand input { font-family: var(--font); font-size: 12px; background: var(--bg); border: 1px solid var(--border); color: var(--green); padding: 2px 6px; border-radius: 3px; width: 55px; text-align: center; }
+  .ram-operand input:focus { outline: none; border-color: var(--green); }
+  .ram-bin { font-size: 10px; color: var(--text3); letter-spacing: 1px; width: 90px; }
+  .ram-row.pc-row td { background: rgba(240,165,0,0.07); }
+  .ram-row.active-row td { background: rgba(63,185,80,0.08); border-left: 2px solid var(--green); }
+  #ram-modal-footer { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+  #ram-load-btn { background: var(--green-bg); border: 1px solid var(--green); color: var(--green); font-family: var(--font); font-size: 12px; padding: 6px 16px; border-radius: 4px; cursor: pointer; letter-spacing: 1px; text-transform: uppercase; }
+  #ram-load-btn:hover { background: var(--green-dim); }
+
+  #info-modal-inner { background: var(--bg2); border: 1.5px solid var(--border2); border-radius: 8px; width: 460px; max-height: 80vh; overflow-y: auto; }
+  #info-modal-header { padding: 12px 16px; background: var(--bg3); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; border-radius: 6px 6px 0 0; position: sticky; top: 0; }
+  #info-modal-header h2 { font-size: 14px; color: var(--text); flex: 1; }
+  #info-modal-body { padding: 16px; line-height: 1.7; }
+  #info-modal-body h3 { color: var(--blue); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 4px; }
+  #info-modal-body p { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
+  #info-modal-body code { color: var(--green); background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  #manual-inner { background: var(--bg2); border: 1.5px solid var(--purple); border-radius: 8px; width: 720px; max-width: 100%; padding: 0; }
+  #manual-inner header { background: var(--purple-bg); border-bottom: 1px solid var(--purple); padding: 12px 20px; display: flex; align-items: center; border-radius: 6px 6px 0 0; }
+  #manual-inner header h2 { color: var(--purple); font-size: 14px; letter-spacing: 2px; text-transform: uppercase; flex: 1; }
+  #manual-inner section { padding: 20px; border-bottom: 1px solid var(--border); }
+  #manual-inner section:last-child { border-bottom: none; }
+  #manual-inner h3 { color: var(--amber); font-size: 12px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  #manual-inner h4 { color: var(--blue); font-size: 12px; margin: 12px 0 4px; }
+  #manual-inner p { font-size: 12px; color: var(--text2); line-height: 1.8; margin-bottom: 8px; }
+  #manual-inner ul { padding-left: 16px; margin-bottom: 8px; }
+  #manual-inner li { font-size: 12px; color: var(--text2); line-height: 1.8; }
+  #manual-inner code { color: var(--green); background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  .inst-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  .inst-table th { font-size: 10px; color: var(--text3); text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase; }
+  .inst-table td { font-size: 11px; color: var(--text2); padding: 4px 8px; border-bottom: 1px solid var(--bg3); }
+  .inst-table td:first-child { color: var(--green); font-weight: bold; }
+  .inst-table td:nth-child(2) { color: var(--amber); }
+
+  #manual-close { width: 28px; height: 28px; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>SAP-1</h1>
+  <div class="sep"></div>
+  <span id="clock-display">CLK: ▐</span>
+  <span id="step-display">T1 — Fetch Addr</span>
+  <span id="phase-badge">FETCH</span>
+  <div class="topbar-right">
+    <button id="manual-btn">&#9881; Manual</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sim-area">
+    <div id="sim-canvas">
+
+      <!-- W-BUS -->
+      <div id="wbus-line"></div>
+      <div id="wbus-active"></div>
+      <div id="wbus-label">W-BUS</div>
+      <div id="wbus-data"></div>
+
+      <!-- SVG OVERLAY -->
+      <svg id="arrows-svg" viewBox="0 0 1060 780" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah"  viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M1 1L8 5L1 9" fill="none" stroke="#f0a500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="aht" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M1 1L8 5L1 9" fill="none" stroke="#39d0c3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="ahg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M1 1L8 5L1 9" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="ahp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M1 1L8 5L1 9" fill="none" stroke="#bc8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+          <marker id="ahb" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M1 1L8 5L1 9" fill="none" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <!-- PC center: x=130,y=~113  MAR center: x=130,y=~295  RAM center: x=130,y=~480  IR center: x=130,y=~622  CTRL center: x=135,y=~726 -->
+        <!-- ACC center: x=780,y=~113  ALU center: x=780,y=~295  BREG center: x=780,y=~480  OUTREG center: x=780,y=~612  DISP center: x=780,y=~726 -->
+        <!-- WBUS: x=510..528, left-edge=510, right-edge=528, center=519 -->
+
+        <!-- PC -> WBUS (EP: PC addr onto bus) -->
+        <path id="arr-pc-wbus" class="sig-arrow" d="M210 113 L510 113" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-pc-wbus" class="arr-label" x="355" y="107" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">0000</text>
+
+        <!-- WBUS -> MAR -->
+        <path id="arr-wbus-mar" class="sig-arrow" d="M510 295 L210 295" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-wbus-mar" class="arr-label" x="355" y="289" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">0000</text>
+
+        <!-- MAR -> RAM (4-bit addr, internal left side) -->
+        <path id="arr-mar-ram" class="sig-arrow" d="M130 360 L130 410" marker-end="url(#ahb)" stroke="#58a6ff"/>
+        <text id="lbl-mar-ram" class="arr-label" x="115" y="390" fill="#58a6ff" font-size="9" text-anchor="middle" font-family="Courier New">0000</text>
+
+        <!-- RAM -> WBUS -->
+        <path id="arr-ram-wbus" class="sig-arrow" d="M210 480 L510 480" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-ram-wbus" class="arr-label" x="355" y="474" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- WBUS -> IR -->
+        <path id="arr-wbus-ir" class="sig-arrow" d="M510 622 L210 622" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-wbus-ir" class="arr-label" x="355" y="616" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- IR -> WBUS (Ei: addr part) -->
+        <path id="arr-ir-wbus" class="sig-arrow" d="M210 634 L510 634" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-ir-wbus" class="arr-label" x="355" y="648" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">0000</text>
+
+        <!-- IR -> CTRL (opcode) -->
+        <path id="arr-ir-ctrl" class="sig-arrow" d="M130 682 L130 710" marker-end="url(#ahp)" stroke="#bc8cff"/>
+        <text id="lbl-ir-ctrl" class="arr-label" x="110" y="700" fill="#bc8cff" font-size="9" text-anchor="middle" font-family="Courier New">0000</text>
+
+        <!-- WBUS -> ACC -->
+        <path id="arr-wbus-acc" class="sig-arrow" d="M528 113 L700 113" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-wbus-acc" class="arr-label" x="610" y="107" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- ACC -> WBUS -->
+        <path id="arr-acc-wbus" class="sig-arrow" d="M700 127 L528 127" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-acc-wbus" class="arr-label" x="610" y="141" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- ACC -> ALU (direct feed, right side) -->
+        <path id="arr-acc-alu" class="sig-arrow sig-arrow-teal" d="M780 185 L780 230" marker-end="url(#aht)" stroke="#39d0c3"/>
+        <text id="lbl-acc-alu" class="arr-label" x="796" y="210" fill="#39d0c3" font-size="9" text-anchor="start" font-family="Courier New">00000000</text>
+
+        <!-- ALU -> WBUS -->
+        <path id="arr-alu-wbus" class="sig-arrow sig-arrow-teal" d="M700 295 L528 295" marker-end="url(#aht)" stroke="#39d0c3"/>
+        <text id="lbl-alu-wbus" class="arr-label" x="610" y="289" fill="#39d0c3" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- WBUS -> BREG -->
+        <path id="arr-wbus-breg" class="sig-arrow" d="M528 480 L700 480" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-wbus-breg" class="arr-label" x="610" y="474" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- BREG -> ALU -->
+        <path id="arr-breg-alu" class="sig-arrow sig-arrow-teal" d="M780 410 L780 360" marker-end="url(#aht)" stroke="#39d0c3"/>
+        <text id="lbl-breg-alu" class="arr-label" x="796" y="388" fill="#39d0c3" font-size="9" text-anchor="start" font-family="Courier New">00000000</text>
+
+        <!-- ACC -> OUTREG (via WBUS) -->
+        <path id="arr-wbus-out" class="sig-arrow" d="M528 612 L700 612" marker-end="url(#ah)" stroke="#f0a500"/>
+        <text id="lbl-wbus-out" class="arr-label" x="610" y="606" fill="#f0a500" font-size="9" text-anchor="middle" font-family="Courier New">00000000</text>
+
+        <!-- OUTREG -> DISP -->
+        <path id="arr-out-disp" class="sig-arrow sig-arrow-green" d="M780 690 L780 668" marker-end="url(#ahg)" stroke="#3fb950"/>
+        <text id="lbl-out-disp" class="arr-label" x="796" y="682" fill="#3fb950" font-size="9" text-anchor="start" font-family="Courier New">00000000</text>
+      </svg>
+
+      <!-- ===== PROGRAM COUNTER ===== -->
+      <div class="component" id="pc" onclick="showInfo('pc')">
+        <div class="comp-header">PC — Program Counter</div>
+        <div class="comp-body">
+          <div class="comp-name">4-bit Counter</div>
+          <div class="comp-value" id="pc-val">0000</div>
+          <div class="comp-hex" id="pc-hex">0x0 (dec:0)</div>
+        </div>
+        <div class="pin-strip" id="pins-pc">
+          <span class="pin" id="pin-pc-clk" title="Clock input">CLK=▐</span>
+          <span class="pin" id="pin-pc-cp"  title="Count/Increment">Cp=0</span>
+          <span class="pin" id="pin-pc-ep"  title="Enable output to bus">Ep=0</span>
+          <span class="pin" id="pin-pc-clr" title="Clear/Reset">CLR=0</span>
+        </div>
+      </div>
+
+      <!-- ===== ACCUMULATOR ===== -->
+      <div class="component" id="acc" onclick="showInfo('acc')">
+        <div class="comp-header">ACC — Accumulator A</div>
+        <div class="comp-body">
+          <div class="comp-name">8-bit Register</div>
+          <div class="comp-value" id="acc-val">00000000</div>
+          <div class="comp-hex" id="acc-hex">0x00 (0)</div>
+        </div>
+        <div class="pin-strip" id="pins-acc">
+          <span class="pin" id="pin-acc-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-acc-la"  title="Load from bus (active LOW)">L̄A=1</span>
+          <span class="pin" id="pin-acc-ea"  title="Enable to bus">Ea=0</span>
+        </div>
+      </div>
+
+      <!-- ===== MAR ===== -->
+      <div class="component" id="mar" onclick="showInfo('mar')">
+        <div class="comp-header">MAR — Memory Address Reg</div>
+        <div class="comp-body">
+          <div class="comp-name">4-bit Register</div>
+          <div class="comp-value" id="mar-val">0000</div>
+          <div class="comp-hex" id="mar-hex">0x0 (0)</div>
+        </div>
+        <div class="pin-strip" id="pins-mar">
+          <span class="pin" id="pin-mar-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-mar-lm"  title="Load from bus (active LOW)">L̄M=1</span>
+        </div>
+      </div>
+
+      <!-- ===== ALU ===== -->
+      <div class="component" id="alu" onclick="showInfo('alu')">
+        <div class="comp-header">ALU — Adder/Subtracter</div>
+        <div class="comp-body">
+          <div class="comp-name">Combinational</div>
+          <div class="comp-value" id="alu-val">00000000</div>
+          <div class="comp-hex" id="alu-hex">0x00 (0)</div>
+        </div>
+        <div class="pin-strip" id="pins-alu">
+          <span class="pin" id="pin-alu-su"  title="Subtract mode">Su=0</span>
+          <span class="pin" id="pin-alu-eu"  title="Enable output to bus">Eu=0</span>
+          <span class="pin" id="pin-alu-a"   title="A input (from ACC)">A=00</span>
+          <span class="pin" id="pin-alu-b"   title="B input (from B-Reg)">B=00</span>
+        </div>
+      </div>
+
+      <!-- ===== RAM ===== -->
+      <div class="component" id="ram" onclick="openRAM()">
+        <div class="comp-header">16×8 RAM</div>
+        <div class="comp-body">
+          <div class="comp-name">Data @ MAR addr</div>
+          <div class="comp-value" id="ram-val">00000000</div>
+          <button id="ram-btn">&#9998; Edit RAM</button>
+        </div>
+        <div class="pin-strip" id="pins-ram">
+          <span class="pin" id="pin-ram-ce"  title="Chip Enable (active LOW)">C̄E=1</span>
+          <span class="pin" id="pin-ram-addr" title="Address from MAR">Addr=0</span>
+          <span class="pin" id="pin-ram-out" title="Output data">Out=00</span>
+        </div>
+      </div>
+
+      <!-- ===== B REGISTER ===== -->
+      <div class="component" id="breg" onclick="showInfo('breg')">
+        <div class="comp-header">B REG — B Register</div>
+        <div class="comp-body">
+          <div class="comp-name">8-bit Register</div>
+          <div class="comp-value" id="breg-val">00000000</div>
+          <div class="comp-hex" id="breg-hex">0x00 (0)</div>
+        </div>
+        <div class="pin-strip" id="pins-breg">
+          <span class="pin" id="pin-breg-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-breg-lb"  title="Load from bus (active LOW)">L̄B=1</span>
+        </div>
+      </div>
+
+      <!-- ===== IR ===== -->
+      <div class="component" id="ir" onclick="showInfo('ir')">
+        <div class="comp-header">IR — Instruction Register</div>
+        <div class="comp-body">
+          <div class="comp-name">8-bit [opcode|addr]</div>
+          <div class="comp-value" id="ir-val">00000000</div>
+          <div class="comp-hex" id="ir-hex">NOP 0</div>
+        </div>
+        <div class="pin-strip" id="pins-ir">
+          <span class="pin" id="pin-ir-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-ir-li"  title="Load from bus (active LOW)">L̄I=1</span>
+          <span class="pin" id="pin-ir-ei"  title="Enable addr bits to bus">Ei=0</span>
+          <span class="pin" id="pin-ir-op"  title="Opcode to controller">Op=0000</span>
+        </div>
+      </div>
+
+      <!-- ===== OUTPUT REG ===== -->
+      <div class="component" id="outreg" onclick="showInfo('outreg')">
+        <div class="comp-header">OUT REG — Output Register</div>
+        <div class="comp-body">
+          <div class="comp-name">8-bit Latch</div>
+          <div class="comp-value" id="out-val">00000000</div>
+          <div class="comp-hex" id="out-hex">0 (0x00)</div>
+        </div>
+        <div class="pin-strip" id="pins-out">
+          <span class="pin" id="pin-out-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-out-lo"  title="Load from bus (active LOW)">L̄O=1</span>
+          <span class="pin" id="pin-out-ea"  title="Acc enable feeds this">Ea=0</span>
+        </div>
+      </div>
+
+      <!-- ===== CONTROLLER ===== -->
+      <div class="component" id="ctrl" onclick="showInfo('ctrl')">
+        <div class="comp-header">CTRL — Controller-Sequencer</div>
+        <div class="comp-body">
+          <div class="comp-name">Microprogrammed</div>
+          <div class="ctrl-signals" id="ctrl-signals">
+            <span class="sig-pill" id="sig-cp">Cp</span>
+            <span class="sig-pill" id="sig-ep">Ep</span>
+            <span class="sig-pill" id="sig-lm">L̄M</span>
+            <span class="sig-pill" id="sig-ce">C̄E</span>
+            <span class="sig-pill" id="sig-li">L̄I</span>
+            <span class="sig-pill" id="sig-ei">Ei</span>
+            <span class="sig-pill" id="sig-la">L̄A</span>
+            <span class="sig-pill" id="sig-ea">Ea</span>
+            <span class="sig-pill" id="sig-su">Su</span>
+            <span class="sig-pill" id="sig-eu">Eu</span>
+            <span class="sig-pill" id="sig-lb">L̄B</span>
+            <span class="sig-pill" id="sig-lo">L̄O</span>
+          </div>
+        </div>
+        <div class="pin-strip" id="pins-ctrl">
+          <span class="pin" id="pin-ctrl-clk" title="Clock">CLK=▐</span>
+          <span class="pin" id="pin-ctrl-t"   title="T-State">T=1</span>
+          <span class="pin" id="pin-ctrl-op"  title="Opcode from IR">Op=0000</span>
+          <span class="pin" id="pin-ctrl-clr" title="Clear">CLR=0</span>
+        </div>
+      </div>
+
+      <!-- ===== DISPLAY ===== -->
+      <div class="component" id="disp" onclick="showInfo('disp')">
+        <div class="comp-header">OUTPUT — Binary Display</div>
+        <div class="comp-body">
+          <div class="comp-name">8 LED Outputs</div>
+          <div class="bin-display" id="bin-display">
+            <div class="bin-bit" id="bit7">0</div><div class="bin-bit" id="bit6">0</div>
+            <div class="bin-bit" id="bit5">0</div><div class="bin-bit" id="bit4">0</div>
+            <div class="bin-bit" id="bit3">0</div><div class="bin-bit" id="bit2">0</div>
+            <div class="bin-bit" id="bit1">0</div><div class="bin-bit" id="bit0">0</div>
+          </div>
+          <div class="comp-value" id="disp-val" style="color:var(--green)">0</div>
+        </div>
+        <div class="pin-strip" id="pins-disp">
+          <span class="pin" id="pin-disp-in" title="Input from OUT REG">In=00</span>
+          <span class="pin" id="pin-disp-dec" title="Decimal value">Dec=0</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CON PANEL -->
+  <div id="con-panel">
+    <h3>CON Signals</h3>
+    <div class="con-step-name" id="con-step-label">T1</div>
+    <div class="con-row"><span class="con-name">Cp</span><span class="con-val" id="con-cp">0</span></div>
+    <div class="con-row"><span class="con-name">Ep</span><span class="con-val" id="con-ep">0</span></div>
+    <div class="con-row"><span class="con-name">L̄M</span><span class="con-val" id="con-lm">1</span></div>
+    <div class="con-row"><span class="con-name">C̄E</span><span class="con-val" id="con-ce">1</span></div>
+    <div class="con-row"><span class="con-name">L̄I</span><span class="con-val" id="con-li">1</span></div>
+    <div class="con-row"><span class="con-name">Ei</span><span class="con-val" id="con-ei">0</span></div>
+    <div class="con-row"><span class="con-name">L̄A</span><span class="con-val" id="con-la">1</span></div>
+    <div class="con-row"><span class="con-name">Ea</span><span class="con-val" id="con-ea">0</span></div>
+    <div class="con-row"><span class="con-name">Su</span><span class="con-val" id="con-su">0</span></div>
+    <div class="con-row"><span class="con-name">Eu</span><span class="con-val" id="con-eu">0</span></div>
+    <div class="con-row"><span class="con-name">L̄B</span><span class="con-val" id="con-lb">1</span></div>
+    <div class="con-row"><span class="con-name">L̄O</span><span class="con-val" id="con-lo">1</span></div>
+    <hr style="border-color:var(--border);margin:8px 0">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:3px">CON Word</div>
+    <div style="font-size:10px;color:var(--amber);word-break:break-all;letter-spacing:1px;font-family:var(--font)" id="con-word">000011110000</div>
+    <hr style="border-color:var(--border);margin:8px 0">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:3px">W-Bus</div>
+    <div style="font-size:10px;color:var(--signal);word-break:break-all;letter-spacing:1px;font-family:var(--font)" id="bus-data-panel">--------</div>
+  </div>
+</div>
+
+<div id="controls">
+  <button class="ctrl-btn" id="btn-run"   onclick="simRun()">&#9654; Run</button>
+  <button class="ctrl-btn" id="btn-pause" onclick="simPause()">&#9646;&#9646; Pause</button>
+  <button class="ctrl-btn" id="btn-prev"  onclick="simPrev()" disabled>&#9664; Prev</button>
+  <button class="ctrl-btn" id="btn-next"  onclick="simNext()">Next &#9654;</button>
+  <button class="ctrl-btn" id="btn-reset" onclick="simReset()">&#9634; Reset</button>
+  <div id="status-bar">Ready — Load RAM to begin</div>
+  <div class="speed-control">
+    <label>Speed</label>
+    <input type="range" id="speed-slider" min="200" max="2000" value="1000" step="100" oninput="setSpeed(this.value)">
+    <span id="speed-label" style="font-size:11px;color:var(--text2)">1.0s</span>
+  </div>
+</div>
+
+<!-- RAM MODAL -->
+<div id="ram-modal">
+  <div id="ram-modal-inner">
+    <div id="ram-modal-header">
+      <h2>&#128190; 16×8 RAM Editor</h2>
+      <button id="ram-close" onclick="closeRAM()">&#10005;</button>
+    </div>
+    <div id="ram-modal-body">
+      <div class="ram-toolbar">
+        <select id="ram-preset" onchange="loadPreset(this.value)">
+          <option value="">-- Load Example Program --</option>
+          <option value="add">ADD: A=14+28</option>
+          <option value="sub">SUB: A=30-12</option>
+          <option value="loop">COUNT up (HLT at 15)</option>
+        </select>
+        <button onclick="clearRAM()">&#9003; Clear All</button>
+      </div>
+      <table class="ram-table">
+        <thead><tr><th>Addr</th><th>Mnemonic</th><th>Operand (hex)</th><th>Binary</th></tr></thead>
+        <tbody id="ram-tbody"></tbody>
+      </table>
+    </div>
+    <div id="ram-modal-footer">
+      <button id="ram-load-btn" onclick="commitRAM()">&#10003; Load & Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- INFO MODAL -->
+<div id="info-modal">
+  <div id="info-modal-inner">
+    <div id="info-modal-header">
+      <h2 id="info-title">Component Info</h2>
+      <button id="info-close" onclick="closeInfo()">&#10005;</button>
+    </div>
+    <div id="info-modal-body"></div>
+  </div>
+</div>
+
+<!-- MANUAL MODAL -->
+<div id="manual-modal">
+  <div id="manual-inner">
+    <header>
+      <h2>&#9881; SAP-1 Manual</h2>
+      <button id="manual-close" onclick="closeManual()">&#10005;</button>
+    </header>
+    <section>
+      <h3>How to Use This Simulator</h3>
+      <h4>Step 1 — Load a Program into RAM</h4>
+      <p>Click the blue <code>16×8 RAM</code> block or <code>Edit RAM</code>. Choose a preset or manually enter instructions.</p>
+      <h4>Step 2 — Run or Step Through</h4>
+      <p>Press <code>RUN</code> to execute automatically. Use <code>NEXT/PREV</code> to single-step. Press <code>PAUSE</code> to freeze anytime.</p>
+      <h4>Reading Pin Strips</h4>
+      <p>Every component shows its input pins below the value. When a pin is <strong>inactive</strong> it shows grey. When it is logically <strong>1</strong> it glows green. When it is <strong>actively being used this T-state</strong> it glows amber and pulses.</p>
+      <h4>Arrow Bit Labels</h4>
+      <p>Animated arrows show data moving between blocks. The binary value being transferred appears above each arrow. The W-bus also shows its current contents on the side label.</p>
+    </section>
+    <section>
+      <h3>SAP-1 Architecture Theory</h3>
+      <p>SAP-1 (Simple As Possible 1) by Albert Paul Malvino demonstrates the fetch-decode-execute cycle on an 8-bit bus architecture.</p>
+      <h4>Fetch-Decode-Execute</h4>
+      <p><code>T1</code> — PC → MAR (Ep=1, L̄M=0)<br><code>T2</code> — PC++ (Cp=1)<br><code>T3</code> — RAM[MAR] → IR (C̄E=0, L̄I=0)<br><code>T4–T6</code> — Execute per opcode</p>
+      <h4>Instruction Set</h4>
+      <table class="inst-table">
+        <thead><tr><th>Mnemonic</th><th>Opcode</th><th>Operation</th></tr></thead>
+        <tbody>
+          <tr><td>LDA</td><td>0000</td><td>A ← M[addr]</td></tr>
+          <tr><td>ADD</td><td>0001</td><td>A ← A + M[addr]</td></tr>
+          <tr><td>SUB</td><td>0010</td><td>A ← A − M[addr]</td></tr>
+          <tr><td>OUT</td><td>1110</td><td>Output ← A</td></tr>
+          <tr><td>HLT</td><td>1111</td><td>HALT</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</div>
+
+<script>
+const MNEMONICS = ['LDA','ADD','SUB','NOP','NOP','NOP','NOP','NOP','NOP','NOP','NOP','NOP','NOP','NOP','OUT','HLT'];
+let ram = new Array(16).fill(0);
+let simState = { pc:0, mar:0, acc:0, breg:0, alu:0, ir:0, outReg:0, tState:1, halted:false, running:false, paused:false };
+let history = [], historyIdx = -1, runInterval = null, speed = 1000, clockTick = false;
+
+const CON = {
+  NOP: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{}, T5:{}, T6:{} },
+  LDA: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{ei:1,lm:0}, T5:{ce:0,la:0}, T6:{} },
+  ADD: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{ei:1,lm:0}, T5:{ce:0,lb:0}, T6:{eu:1,la:0} },
+  SUB: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{ei:1,lm:0}, T5:{ce:0,lb:0}, T6:{su:1,eu:1,la:0} },
+  OUT: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{ea:1,lo:0}, T5:{}, T6:{} },
+  HLT: { T1:{ep:1,lm:0}, T2:{cp:1}, T3:{ce:0,li:0}, T4:{hlt:1}, T5:{}, T6:{} }
+};
+const SIG_NAMES = ['cp','ep','lm','ce','li','ei','la','ea','su','eu','lb','lo'];
+const ACTIVE_LOW = ['lm','ce','li','la','lb','lo'];
+
+function getInstrName(op) { return MNEMONICS[op] || 'NOP'; }
+function getCurrentCON() {
+  const instr = getInstrName((simState.ir >> 4) & 0xF);
+  return (CON[instr] || CON.NOP)['T' + simState.tState] || {};
+}
+function toBin8(v) { return (v&0xFF).toString(2).padStart(8,'0'); }
+function toBin4(v) { return (v&0xF).toString(2).padStart(4,'0'); }
+function toHex2(v) { return '0x'+((v&0xFF).toString(16).padStart(2,'0').toUpperCase()); }
+function toHex1(v) { return '0x'+((v&0xF).toString(16).toUpperCase()); }
+function setVal(id, v) { const e=document.getElementById(id); if(e) e.textContent=v; }
+
+function getMaxT(instr) {
+  if (instr==='NOP') return 3;
+  if (instr==='OUT'||instr==='HLT') return 4;
+  if (instr==='LDA') return 5;
+  return 6;
+}
+
+function executeStep() {
+  if (simState.halted) return;
+  const s = simState;
+  const opcode = (s.ir >> 4) & 0xF;
+  const instr = getInstrName(opcode);
+  const addr = s.ir & 0x0F;
+  switch (s.tState) {
+    case 1: s.mar = s.pc; break;
+    case 2: s.pc = (s.pc + 1) & 0xF; break;
+    case 3: s.ir = ram[s.mar] & 0xFF; break;
+    case 4:
+      if (instr==='LDA'||instr==='ADD'||instr==='SUB') { s.mar = addr; }
+      else if (instr==='OUT') { s.outReg = s.acc; updateBinaryDisplay(s.outReg); }
+      else if (instr==='HLT') { s.halted = true; setStatus('HALTED — Program complete','halt'); }
+      break;
+    case 5:
+      if (instr==='LDA') { s.acc = ram[s.mar] & 0xFF; }
+      else if (instr==='ADD'||instr==='SUB') { s.breg = ram[s.mar] & 0xFF; }
+      break;
+    case 6:
+      if (instr==='ADD') { s.alu = (s.acc + s.breg) & 0xFF; s.acc = s.alu; }
+      else if (instr==='SUB') { s.alu = (s.acc - s.breg + 256) & 0xFF; s.acc = s.alu; }
+      break;
+  }
+  const su = getCurrentCON().su === 1;
+  s.alu = su ? (s.acc - s.breg + 256) & 0xFF : (s.acc + s.breg) & 0xFF;
+  updateAllDisplays();
+  animateSignals();
+  const maxT = getMaxT(instr);
+  if (s.tState >= maxT || s.tState >= 6) s.tState = 1; else s.tState++;
+  updatePhase();
+}
+
+// ===== WHAT'S ON THE BUS NOW =====
+function getBusData() {
+  const s = simState; const con = getCurrentCON();
+  const instr = getInstrName((s.ir >> 4) & 0xF);
+  const t = s.tState;
+  if (t === 1 && con.ep === 1) return { bits: toBin4(s.pc).padStart(8,'0'), label: 'PC addr' };
+  if (t === 3 && con.ce === 0) return { bits: toBin8(ram[s.mar] || 0), label: 'RAM data' };
+  if (t === 4 && con.ei === 1) return { bits: toBin4(s.ir & 0xF).padStart(8,'0'), label: 'IR addr' };
+  if (t === 4 && con.ea === 1) return { bits: toBin8(s.acc), label: 'ACC out' };
+  if (t === 5 && con.ce === 0) return { bits: toBin8(ram[s.mar] || 0), label: 'RAM→' + instr };
+  if (t === 6 && con.eu === 1) return { bits: toBin8(s.alu), label: 'ALU result' };
+  return null;
+}
+
+function updateBusVisual() {
+  const bd = getBusData();
+  const wbusLine = document.getElementById('wbus-line');
+  const wbusActive = document.getElementById('wbus-active');
+  const wbusData = document.getElementById('wbus-data');
+  const busPanelEl = document.getElementById('bus-data-panel');
+  if (bd) {
+    wbusLine.style.borderColor = '#f0a500';
+    wbusLine.style.boxShadow = '0 0 20px rgba(240,165,0,0.5)';
+    wbusLine.style.background = 'linear-gradient(180deg,#1a1200,#3a2800)';
+    wbusActive.classList.add('lit');
+    wbusData.textContent = bd.bits;
+    wbusData.classList.add('visible');
+    
+    if (busPanelEl) busPanelEl.textContent = bd.bits + ' (' + bd.label + ')';
+    // Update bit labels on arrows based on active transfer
+    updateArrowLabels(bd);
+  } else {
+    wbusLine.style.borderColor = '#4a3500';
+    wbusLine.style.boxShadow = '0 0 8px rgba(240,165,0,0.1)';
+    wbusLine.style.background = 'linear-gradient(180deg,#1a1200,#2a1e00)';
+    wbusActive.classList.remove('lit');
+    wbusData.classList.remove('visible');
+    if (busPanelEl) busPanelEl.textContent = '--------';
+  }
+}
+
+function updateArrowLabels(bd) {
+  const s = simState; const t = s.tState;
+  const instr = getInstrName((s.ir >> 4) & 0xF);
+  // Hide all labels first
+  document.querySelectorAll('.arr-label').forEach(e => e.classList.remove('visible'));
+  if (!bd) return;
+  // Show relevant label on the active arrow
+  const activeArrows = getArrowsForCurrentState();
+  activeArrows.forEach(arrId => {
+    const lbl = document.getElementById(arrId.replace('arr-', 'lbl-'));
+    if (lbl) { lbl.textContent = bd.bits; lbl.classList.add('visible'); }
+  });
+}
+
+// ===== PIN UPDATES =====
+function updatePins() {
+  const s = simState; const con = getCurrentCON();
+  const t = s.tState;
+  const instr = getInstrName((s.ir >> 4) & 0xF);
+  const opcode = (s.ir >> 4) & 0xF;
+  function setPin(id, value, isActive) {
+    const el = document.getElementById(id); if (!el) return;
+    el.classList.remove('pin-0','pin-1','pin-active');
+    if (isActive) { el.classList.add('pin-active'); el.textContent = el.title.split(' ')[0].split('=')[0] + '=1'; }
+    else if (value === 1) { el.classList.add('pin-1'); el.textContent = el.textContent.replace(/=.*/, '=1'); }
+    else { el.classList.add('pin-0'); el.textContent = el.textContent.replace(/=.*/, '=0'); }
+  }
+  function setPinRaw(id, text, isActive) {
+    const el = document.getElementById(id); if (!el) return;
+    el.classList.remove('pin-0','pin-1','pin-active');
+    el.textContent = text;
+    if (isActive) el.classList.add('pin-active');
+    else if (text.includes('=1')) el.classList.add('pin-1');
+    else el.classList.add('pin-0');
+  }
+
+  // Active-low: active when con[x]===0, displayed as asserted (0 on pin = active)
+  const cp_active = con.cp === 1, ep_active = con.ep === 1;
+  const lm_active = con.lm === 0, ce_active = con.ce === 0;
+  const li_active = con.li === 0, ei_active = con.ei === 1;
+  const la_active = con.la === 0, ea_active = con.ea === 1;
+  const su_active = con.su === 1, eu_active = con.eu === 1;
+  const lb_active = con.lb === 0, lo_active = con.lo === 0;
+
+  // PC pins
+  setPinRaw('pin-pc-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPin('pin-pc-cp', cp_active?1:0, cp_active);
+  setPin('pin-pc-ep', ep_active?1:0, ep_active);
+  setPinRaw('pin-pc-clr', 'CLR=0', false);
+
+  // ACC pins
+  setPinRaw('pin-acc-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-acc-la', 'L̄A=' + (la_active?'0':'1'), la_active);
+  setPinRaw('pin-acc-ea', 'Ea=' + (ea_active?'1':'0'), ea_active);
+
+  // MAR pins
+  setPinRaw('pin-mar-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-mar-lm', 'L̄M=' + (lm_active?'0':'1'), lm_active);
+
+  // ALU pins
+  setPinRaw('pin-alu-su', 'Su=' + (su_active?'1':'0'), su_active);
+  setPinRaw('pin-alu-eu', 'Eu=' + (eu_active?'1':'0'), eu_active);
+  setPinRaw('pin-alu-a', 'A=' + s.acc.toString(16).toUpperCase().padStart(2,'0'), false);
+  setPinRaw('pin-alu-b', 'B=' + s.breg.toString(16).toUpperCase().padStart(2,'0'), false);
+
+  // RAM pins
+  setPinRaw('pin-ram-ce', 'C̄E=' + (ce_active?'0':'1'), ce_active);
+  setPinRaw('pin-ram-addr', 'Addr=' + s.mar.toString(16).toUpperCase(), false);
+  setPinRaw('pin-ram-out', 'Out=' + (ram[s.mar]||0).toString(16).toUpperCase().padStart(2,'0'), ce_active);
+
+  // B REG pins
+  setPinRaw('pin-breg-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-breg-lb', 'L̄B=' + (lb_active?'0':'1'), lb_active);
+
+  // IR pins
+  setPinRaw('pin-ir-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-ir-li', 'L̄I=' + (li_active?'0':'1'), li_active);
+  setPinRaw('pin-ir-ei', 'Ei=' + (ei_active?'1':'0'), ei_active);
+  setPinRaw('pin-ir-op', 'Op=' + toBin4(opcode), false);
+
+  // OUT REG pins
+  setPinRaw('pin-out-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-out-lo', 'L̄O=' + (lo_active?'0':'1'), lo_active);
+  setPinRaw('pin-out-ea', 'Ea=' + (ea_active?'1':'0'), ea_active);
+
+  // CTRL pins
+  setPinRaw('pin-ctrl-clk', 'CLK=' + (clockTick?'▌':'▐'), false);
+  setPinRaw('pin-ctrl-t', 'T=' + t, false);
+  setPinRaw('pin-ctrl-op', 'Op=' + toBin4(opcode), false);
+  setPinRaw('pin-ctrl-clr', 'CLR=0', false);
+
+  // DISP pins
+  setPinRaw('pin-disp-in', 'In=' + s.outReg.toString(16).toUpperCase().padStart(2,'0'), lo_active);
+  setPinRaw('pin-disp-dec', 'Dec=' + s.outReg, false);
+}
+
+function updateAllDisplays() {
+  const s = simState;
+  setVal('pc-val', toBin4(s.pc)); setVal('pc-hex', toHex1(s.pc) + ' (dec:' + s.pc + ')');
+  setVal('mar-val', toBin4(s.mar)); setVal('mar-hex', toHex1(s.mar) + ' (' + s.mar + ')');
+  setVal('acc-val', toBin8(s.acc)); setVal('acc-hex', toHex2(s.acc) + ' (' + s.acc + ')');
+  setVal('alu-val', toBin8(s.alu)); setVal('alu-hex', toHex2(s.alu) + ' (' + s.alu + ')');
+  setVal('ram-val', toBin8(ram[s.mar] || 0));
+  setVal('breg-val', toBin8(s.breg)); setVal('breg-hex', toHex2(s.breg) + ' (' + s.breg + ')');
+  setVal('ir-val', toBin8(s.ir));
+  const opname = getInstrName((s.ir >> 4) & 0xF);
+  const iaddr = s.ir & 0xF;
+  setVal('ir-hex', opname + (opname!=='OUT'&&opname!=='HLT'&&opname!=='NOP' ? ' '+iaddr.toString(16).toUpperCase() : ''));
+  setVal('out-val', toBin8(s.outReg)); setVal('out-hex', s.outReg + ' (' + toHex2(s.outReg) + ')');
+  setVal('disp-val', s.outReg);
+  updateBinaryDisplay(s.outReg);
+  updateCONPanel(); updateCtrlSignals();
+  updateBusVisual();
+  updatePins();
+  clockTick = !clockTick;
+  setVal('clock-display', 'CLK: ' + (clockTick ? '▌' : '▐'));
+  const instr = getInstrName((s.ir >> 4) & 0xF);
+  setVal('step-display', 'T' + s.tState + ' — ' + getTStateName(s.tState, instr) + ' [' + instr + ']');
+}
+
+function getTStateName(t, instr) {
+  if (t===1) return 'Fetch Addr'; if (t===2) return 'Inc PC'; if (t===3) return 'Fetch Instr';
+  if (t===4) { if(instr==='OUT') return 'Output'; if(instr==='HLT') return 'Halt'; return 'Exec 1'; }
+  if (t===5) return 'Exec 2'; if (t===6) return 'Exec 3'; return '';
+}
+
+function updatePhase() {
+  const t = simState.tState; const badge = document.getElementById('phase-badge');
+  if (t <= 2) { badge.textContent='FETCH'; badge.style.color='var(--teal)'; badge.style.borderColor='var(--teal)'; badge.style.background='var(--teal-bg)'; }
+  else if (t === 3) { badge.textContent='DECODE'; badge.style.color='var(--blue)'; badge.style.borderColor='var(--blue)'; badge.style.background='var(--blue-bg)'; }
+  else { badge.textContent='EXECUTE'; badge.style.color='var(--amber)'; badge.style.borderColor='var(--amber)'; badge.style.background='var(--amber-bg)'; }
+}
+
+function updateBinaryDisplay(val) {
+  for (let i = 0; i < 8; i++) {
+    const bit = document.getElementById('bit' + i); if (!bit) continue;
+    const b = (val >> i) & 1; bit.textContent = b; bit.classList.toggle('on', b === 1);
+  }
+}
+
+function updateCONPanel() {
+  const con = getCurrentCON(); document.getElementById('con-step-label').textContent = 'T' + simState.tState;
+  SIG_NAMES.forEach(s => {
+    const el = document.getElementById('con-' + s); if (!el) return;
+    const isAL = ACTIVE_LOW.includes(s);
+    const active = isAL ? con[s] === 0 : con[s] === 1;
+    const display = isAL ? (con[s] === 0 ? '0' : '1') : (con[s] === 1 ? '1' : '0');
+    el.textContent = display; el.classList.toggle('high', active); el.classList.toggle('low', !active);
+  });
+  const word = SIG_NAMES.map(s => { const isAL=ACTIVE_LOW.includes(s); return isAL?(con[s]===0?'1':'0'):(con[s]===1?'1':'0'); }).join('');
+  setVal('con-word', word);
+}
+
+function updateCtrlSignals() {
+  const con = getCurrentCON();
+  SIG_NAMES.forEach(s => {
+    const el = document.getElementById('sig-' + s); if (!el) return;
+    const isAL = ACTIVE_LOW.includes(s); const active = isAL ? con[s] === 0 : con[s] === 1;
+    el.classList.toggle('active', active);
+  });
+}
+
+// ===== ARROWS =====
+const ARROW_MAP = {
+  T1: ['arr-pc-wbus','arr-wbus-mar'],
+  T2: [],
+  T3: ['arr-mar-ram','arr-ram-wbus','arr-wbus-ir'],
+  T4_LDA: ['arr-ir-wbus','arr-wbus-mar'], T4_ADD: ['arr-ir-wbus','arr-wbus-mar'], T4_SUB: ['arr-ir-wbus','arr-wbus-mar'],
+  T4_OUT: ['arr-acc-wbus','arr-wbus-out','arr-out-disp'], T4_HLT: [],
+  T5_LDA: ['arr-mar-ram','arr-ram-wbus','arr-wbus-acc'],
+  T5_ADD: ['arr-mar-ram','arr-ram-wbus','arr-wbus-breg'], T5_SUB: ['arr-mar-ram','arr-ram-wbus','arr-wbus-breg'],
+  T6_ADD: ['arr-breg-alu','arr-acc-alu','arr-alu-wbus','arr-wbus-acc'],
+  T6_SUB: ['arr-breg-alu','arr-acc-alu','arr-alu-wbus','arr-wbus-acc'],
+};
+let activeArrows = [], arrowPulseInterval = null;
+
+function clearArrows() {
+  document.querySelectorAll('.sig-arrow').forEach(a => a.classList.remove('visible','animated','pulse'));
+  document.querySelectorAll('.arr-label').forEach(e => e.classList.remove('visible'));
+  activeArrows = [];
+  if (arrowPulseInterval) { clearInterval(arrowPulseInterval); arrowPulseInterval = null; }
+}
+
+function getArrowsForCurrentState() {
+  const s = simState; const instr = getInstrName((s.ir >> 4) & 0xF); const t = s.tState;
+  if (t===1) return ARROW_MAP.T1; if (t===2) return ARROW_MAP.T2; if (t===3) return ARROW_MAP.T3;
+  if (t===4) return ARROW_MAP['T4_' + instr] || [];
+  if (t===5) return ARROW_MAP['T5_' + instr] || [];
+  if (t===6) return ARROW_MAP['T6_' + instr] || [];
+  return [];
+}
+
+const COMP_MAP = {
+  'arr-pc-wbus':['pc'],'arr-wbus-mar':['mar'],'arr-mar-ram':['mar','ram'],
+  'arr-ram-wbus':['ram'],'arr-wbus-ir':['ir'],'arr-ir-ctrl':['ir','ctrl'],
+  'arr-ir-wbus':['ir'],'arr-wbus-acc':['acc'],'arr-acc-alu':['acc','alu'],
+  'arr-alu-wbus':['alu'],'arr-wbus-breg':['breg'],'arr-breg-alu':['breg','alu'],
+  'arr-acc-wbus':['acc'],'arr-wbus-out':['outreg'],'arr-out-disp':['outreg','disp'],
+};
+
+function highlightComponents(arrows) {
+  document.querySelectorAll('.component').forEach(c => c.classList.remove('active'));
+  const active = new Set();
+  arrows.forEach(a => (COMP_MAP[a] || []).forEach(c => active.add(c)));
+  active.forEach(id => { const el = document.getElementById(id); if (el) el.classList.add('active'); });
+}
+
+function animateSignals() {
+  clearArrows();
+  const arrows = getArrowsForCurrentState(); activeArrows = arrows;
+  const animClass = (simState.running && !simState.paused) ? 'animated' : 'pulse';
+  arrows.forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add('visible', animClass);
+  });
+  highlightComponents(arrows);
+}
+
+// ===== CONTROLS =====
+function simRun() {
+  if (simState.halted) { setStatus('HALTED. Press Reset.','halt'); return; }
+  simState.running = true; simState.paused = false;
+  document.getElementById('btn-run').style.display = 'none';
+  document.getElementById('btn-pause').style.display = '';
+  document.getElementById('btn-prev').disabled = true;
+  document.getElementById('btn-next').disabled = true;
+  setStatus('Running…','run'); saveHistory();
+  runInterval = setInterval(() => { if(simState.halted){simPause();return;} saveHistory(); executeStep(); }, speed);
+}
+
+function simPause() {
+  simState.paused = true; simState.running = false;
+  clearInterval(runInterval); runInterval = null;
+  document.getElementById('btn-run').style.display = '';
+  document.getElementById('btn-pause').style.display = 'none';
+  document.getElementById('btn-prev').disabled = historyIdx <= 0;
+  document.getElementById('btn-next').disabled = false;
+  setStatus('Paused — Use Next/Prev to step','pause');
+  clearArrows();
+  const arrows = getArrowsForCurrentState();
+  arrows.forEach(id => { const el=document.getElementById(id); if(el) el.classList.add('visible','pulse'); });
+  highlightComponents(arrows);
+}
+
+function simNext() {
+  if (simState.halted) { setStatus('HALTED. Press Reset.','halt'); return; }
+  saveHistory(); executeStep();
+  document.getElementById('btn-prev').disabled = historyIdx <= 0;
+  const instr = getInstrName((simState.ir>>4)&0xF);
+  setStatus('Step T'+simState.tState+' — '+getTStateName(simState.tState, instr),'step');
+}
+
+function simPrev() {
+  if (historyIdx <= 0) return; historyIdx--;
+  restoreHistory(historyIdx);
+  document.getElementById('btn-prev').disabled = historyIdx <= 0;
+  setStatus('← Back to T'+simState.tState,'step');
+}
+
+function simReset() {
+  clearInterval(runInterval); runInterval = null;
+  simState = {pc:0,mar:0,acc:0,breg:0,alu:0,ir:0,outReg:0,tState:1,halted:false,running:false,paused:false};
+  history = []; historyIdx = -1; clearArrows();
+  document.querySelectorAll('.component').forEach(c => c.classList.remove('active'));
+  document.getElementById('btn-run').style.display = '';
+  document.getElementById('btn-pause').style.display = 'none';
+  document.getElementById('btn-prev').disabled = true;
+  document.getElementById('btn-next').disabled = false;
+  updateAllDisplays(); updatePhase(); setStatus('Reset — Ready','ready');
+}
+
+function saveHistory() {
+  const snap = JSON.parse(JSON.stringify(simState));
+  if (historyIdx < history.length - 1) history = history.slice(0, historyIdx + 1);
+  history.push(snap); if (history.length > 200) history.shift(); historyIdx = history.length - 1;
+}
+
+function restoreHistory(idx) {
+  simState = JSON.parse(JSON.stringify(history[idx]));
+  updateAllDisplays(); animateSignals(); updatePhase();
+}
+
+function setSpeed(v) {
+  speed = parseInt(v); document.getElementById('speed-label').textContent = (speed/1000).toFixed(1)+'s';
+  if (runInterval) {
+    clearInterval(runInterval);
+    runInterval = setInterval(()=>{if(simState.halted){simPause();return;}saveHistory();executeStep();}, speed);
+  }
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status-bar'); if (!el) return;
+  el.textContent = msg;
+  const colors = { run:['var(--green-bg)','var(--green)'], pause:['var(--amber-bg)','var(--amber)'], halt:['var(--red-bg)','var(--red)'], step:['var(--blue-bg)','var(--blue)'], ready:['var(--teal-bg)','var(--teal)'] };
+  const c = colors[type] || colors.ready;
+  el.style.background = c[0]; el.style.color = c[1]; el.style.borderColor = c[1];
+}
+
+// ===== RAM EDITOR =====
+const MNEM_LIST = ['NOP','LDA','ADD','SUB','OUT','HLT'];
+const MNEM_OPCODES = {NOP:0x00,LDA:0x00,ADD:0x10,SUB:0x20,OUT:0xE0,HLT:0xF0};
+
+function openRAM() { buildRAMTable(); document.getElementById('ram-modal').classList.add('open'); }
+function closeRAM() { document.getElementById('ram-modal').classList.remove('open'); }
+
+function buildRAMTable() {
+  const tbody = document.getElementById('ram-tbody'); tbody.innerHTML = '';
+  for (let i = 0; i < 16; i++) {
+    const byte = ram[i]; const opcode = (byte>>4)&0xF; const operand = byte&0xF;
+    const mnem = MNEMONICS[opcode] || 'NOP';
+    const tr = document.createElement('tr'); tr.className = 'ram-row'; tr.id = 'ram-row-'+i;
+    tr.innerHTML = `<td class="ram-addr">${i.toString(16).toUpperCase()}</td>
+      <td class="ram-mnem"><select id="ram-mnem-${i}" onchange="updateRAMRow(${i})">${MNEM_LIST.map(m=>`<option value="${m}" ${m===mnem?'selected':''}>${m}</option>`).join('')}</select></td>
+      <td class="ram-operand"><input type="text" id="ram-op-${i}" value="${operand.toString(16).toUpperCase()}" maxlength="1" placeholder="0" oninput="updateRAMRow(${i})"/></td>
+      <td class="ram-bin" id="ram-bin-${i}">${byte.toString(2).padStart(8,'0')}</td>`;
+    tbody.appendChild(tr);
+  }
+  highlightRAMRows();
+}
+
+function updateRAMRow(i) {
+  const msel = document.getElementById('ram-mnem-'+i); const opinp = document.getElementById('ram-op-'+i);
+  const mnem = msel.value; const opHex = parseInt(opinp.value, 16);
+  const operand = isNaN(opHex) ? 0 : opHex & 0xF;
+  let byte = mnem==='NOP' ? operand : ((MNEM_OPCODES[mnem]||0)&0xF0) | operand;
+  ram[i] = byte;
+  const binEl = document.getElementById('ram-bin-'+i); if (binEl) binEl.textContent = byte.toString(2).padStart(8,'0');
+}
+
+function highlightRAMRows() {
+  for (let i = 0; i < 16; i++) {
+    const row = document.getElementById('ram-row-'+i); if (!row) continue;
+    row.classList.remove('pc-row','active-row');
+    if (i===simState.pc) row.classList.add('pc-row');
+    if (i===simState.mar) row.classList.add('active-row');
+  }
+}
+
+function commitRAM() { for(let i=0;i<16;i++) updateRAMRow(i); closeRAM(); simReset(); setStatus('RAM loaded — Press RUN','ready'); }
+function clearRAM() { ram.fill(0); buildRAMTable(); }
+
+const RAW_PRESETS = {
+  add: () => { ram[0]=0x09;ram[1]=0x1A;ram[2]=0xE0;ram[3]=0xF0; for(let i=4;i<9;i++)ram[i]=0; ram[9]=14;ram[10]=28; for(let i=11;i<16;i++)ram[i]=0; },
+  sub: () => { ram[0]=0x09;ram[1]=0x2A;ram[2]=0xE0;ram[3]=0xF0; for(let i=4;i<9;i++)ram[i]=0; ram[9]=30;ram[10]=12; for(let i=11;i<16;i++)ram[i]=0; },
+  loop: () => { ram[0]=0x0F;ram[1]=0x1E;ram[2]=0xE0;ram[3]=0xF0; for(let i=4;i<14;i++)ram[i]=0; ram[14]=1;ram[15]=0; }
+};
+
+function loadPreset(name) { if(!name||!RAW_PRESETS[name]) return; RAW_PRESETS[name](); buildRAMTable(); document.getElementById('ram-preset').value=''; }
+
+// ===== INFO =====
+const INFO = {
+  pc: { title:'Program Counter (PC)', html:`<h3>Purpose</h3><p>4-bit counter holding the address of the next instruction. Ranges 0x0–0xF.</p><h3>Control Signals</h3><p><code>Ep</code> — drives PC onto W-bus.<br><code>Cp</code> — increments PC on clock edge.</p><h3>Current</h3><p id="dyn-pc"></p>` },
+  acc: { title:'Accumulator A', html:`<h3>Purpose</h3><p>Central 8-bit register. All arithmetic lands here.</p><h3>Signals</h3><p><code>L̄A</code> — load from bus (active LOW).<br><code>Ea</code> — drive onto bus.</p><h3>Current</h3><p id="dyn-acc"></p>` },
+  mar: { title:'Memory Address Register', html:`<h3>Purpose</h3><p>4-bit register. Holds the address presented to RAM.</p><h3>Signals</h3><p><code>L̄M</code> — load from bus (active LOW).</p><h3>Current</h3><p id="dyn-mar"></p>` },
+  alu: { title:'Adder / Subtracter (ALU)', html:`<h3>Purpose</h3><p>Combinational 8-bit adder/subtractor. Always computing A±B.</p><h3>Signals</h3><p><code>Su=0</code> → A+B, <code>Su=1</code> → A−B.<br><code>Eu</code> — enable output to bus.</p><h3>Current</h3><p id="dyn-alu"></p>` },
+  ram: { title:'16×8 RAM', html:`<h3>Purpose</h3><p>16 locations × 8 bits. Upper nibble=opcode, lower nibble=operand.</p><h3>Signals</h3><p><code>C̄E</code> — chip enable active LOW; outputs RAM[MAR] to bus.</p>` },
+  breg: { title:'B Register', html:`<h3>Purpose</h3><p>8-bit temp register for the second ALU operand.</p><h3>Signals</h3><p><code>L̄B</code> — load from bus (active LOW). No enable output — feeds ALU directly.</p><h3>Current</h3><p id="dyn-breg"></p>` },
+  ir: { title:'Instruction Register (IR)', html:`<h3>Purpose</h3><p>8-bit register. Bits[7:4]=opcode, bits[3:0]=address operand.</p><h3>Signals</h3><p><code>L̄I</code> — load from bus.<br><code>Ei</code> — drive lower 4 bits to bus for MAR.</p><h3>Current</h3><p id="dyn-ir"></p>` },
+  outreg: { title:'Output Register', html:`<h3>Purpose</h3><p>Latches accumulator for display. The only externally visible register.</p><h3>Signals</h3><p><code>L̄O</code> — load from bus (active LOW).</p><h3>Current</h3><p id="dyn-out"></p>` },
+  ctrl: { title:'Controller-Sequencer', html:`<h3>Purpose</h3><p>Generates the 12-bit CON word each T-state using a ring counter and the opcode.</p><h3>Inputs</h3><p>CLK, CLR, opcode from IR[7:4]</p><h3>Output</h3><p>CON = CpEpL̄MC̄EL̄IEiL̄AEaSuEuL̄BL̄O</p>` },
+  disp: { title:'Binary Display', html:`<h3>Purpose</h3><p>8 LEDs showing the Output Register value. Updated by OUT instruction.</p><h3>Current</h3><p id="dyn-disp"></p>` }
+};
+
+function showInfo(id) {
+  const info = INFO[id]; if (!info) return;
+  document.getElementById('info-title').textContent = info.title;
+  document.getElementById('info-modal-body').innerHTML = info.html;
+  const s = simState;
+  const patches = {
+    'dyn-pc': `Binary: <code>${toBin4(s.pc)}</code> Hex: <code>${toHex1(s.pc)}</code> Dec: <code>${s.pc}</code>`,
+    'dyn-acc': `Binary: <code>${toBin8(s.acc)}</code> Hex: <code>${toHex2(s.acc)}</code> Dec: <code>${s.acc}</code>`,
+    'dyn-mar': `Binary: <code>${toBin4(s.mar)}</code> Hex: <code>${toHex1(s.mar)}</code> Dec: <code>${s.mar}</code>`,
+    'dyn-alu': `Binary: <code>${toBin8(s.alu)}</code> Hex: <code>${toHex2(s.alu)}</code> Dec: <code>${s.alu}</code>`,
+    'dyn-breg': `Binary: <code>${toBin8(s.breg)}</code> Hex: <code>${toHex2(s.breg)}</code> Dec: <code>${s.breg}</code>`,
+    'dyn-ir': `Binary: <code>${toBin8(s.ir)}</code> Opcode: <code>${getInstrName((s.ir>>4)&0xF)}</code> Operand: <code>0x${(s.ir&0xF).toString(16).toUpperCase()}</code>`,
+    'dyn-out': `Binary: <code>${toBin8(s.outReg)}</code> Dec: <code>${s.outReg}</code>`,
+    'dyn-disp': `Decimal: <code>${s.outReg}</code> Binary: <code>${toBin8(s.outReg)}</code>`,
+  };
+  Object.entries(patches).forEach(([eid,html]) => { const el=document.getElementById(eid); if(el) el.innerHTML=html; });
+  document.getElementById('info-modal').classList.add('open');
+}
+function closeInfo() { document.getElementById('info-modal').classList.remove('open'); }
+
+document.getElementById('manual-btn').addEventListener('click', () => document.getElementById('manual-modal').classList.add('open'));
+function closeManual() { document.getElementById('manual-modal').classList.remove('open'); }
+document.getElementById('manual-close').addEventListener('click', closeManual);
+document.getElementById('ram-modal').addEventListener('click', e => { if(e.target===document.getElementById('ram-modal')) closeRAM(); });
+document.getElementById('info-modal').addEventListener('click', e => { if(e.target===document.getElementById('info-modal')) closeInfo(); });
+document.getElementById('manual-modal').addEventListener('click', e => { if(e.target===document.getElementById('manual-modal')) closeManual(); });
+document.addEventListener('keydown', e => {
+  if (document.getElementById('ram-modal').classList.contains('open')) return;
+  if (e.key===' ') { e.preventDefault(); simState.running ? simPause() : simRun(); }
+  if ((e.key==='ArrowRight'||e.key==='n') && !simState.running) simNext();
+  if ((e.key==='ArrowLeft'||e.key==='p') && !simState.running) simPrev();
+  if (e.key==='r'||e.key==='R') simReset();
+  if (e.key==='Escape') { closeRAM(); closeInfo(); closeManual(); }
+});
+
+(function init() {
+  ram[0]=0x09; ram[1]=0x1A; ram[2]=0xE0; ram[3]=0xF0;
+  for(let i=4;i<9;i++) ram[i]=0;
+  ram[9]=14; ram[10]=28;
+  for(let i=11;i<16;i++) ram[i]=0;
+  updateAllDisplays(); updatePhase();
+  setStatus('Ready — LDA 14 + ADD 28 = 42 expected','ready');
+})();
+</script>
+</body>
+</html>
